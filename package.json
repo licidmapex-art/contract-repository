@@ -1,0 +1,43 @@
+{
+  "name": "contract-repository",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "tsx --test tests/domain.test.ts tests/entities.test.ts tests/legal-entities.test.ts tests/contract-types.test.ts tests/folder-navigation.test.ts tests/folder-match.test.ts tests/gemini-keys.test.ts tests/api-keys.test.ts tests/notice-period.test.ts tests/automatic-renewal.test.ts tests/dashboard-charts.test.ts tests/pdf-search.test.ts tests/pdf-ocr.test.ts"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "@supabase/ssr": "^0.6.1",
+    "@supabase/supabase-js": "^2.49.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.42.2",
+    "googleapis": "^148.0.0",
+    "lucide-react": "^1.23.0",
+    "next": "^15.2.4",
+    "next-themes": "^0.4.6",
+    "pdf-parse": "^1.1.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-pdf": "^9.2.1",
+    "tailwind-merge": "^3.6.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.0",
+    "@netlify/plugin-nextjs": "^5.11.2",
+    "@tailwindcss/postcss": "^4.0.14",
+    "@types/node": "^22.13.10",
+    "@types/pdf-parse": "^1.1.4",
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4",
+    "eslint": "^9.22.0",
+    "eslint-config-next": "^15.2.4",
+    "tailwindcss": "^4.0.14",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
