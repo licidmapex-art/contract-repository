@@ -1,17 +1,22 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import {
-  computeEffectiveStatusFromMetadata,
-  getMetadataValue,
-} from "@/lib/contracts/status";
+import { computeEffectiveStatusFromMetadata } from "@/lib/contracts/status";
 import { contractDisplayName } from "@/lib/naming/display-name";
 import { fetchAllFolders } from "@/lib/folders/db";
 import {
   buildFolderPaths,
   fetchContractFolderIds,
+  fetchFolderIdsByContractIds,
 } from "@/lib/folders/contract-folders";
 import { buildFolderPathLabel } from "@/lib/folders/match";
 import { FolderRecord } from "@/lib/folders/navigation";
-import { ContractWithDetails, DocumentRole, Folder, MetadataValue } from "@/lib/types";
+import {
+  ContractRelationship,
+  ContractWithDetails,
+  Document,
+  DocumentRole,
+  Folder,
+  MetadataValue,
+} from "@/lib/types";
 
 const DEFAULT_TEMPLATE =
   "{contract_type}_{counterparty}_{effective_date}_{document_role}";
@@ -33,13 +38,30 @@ const CONTRACT_SELECT_WITH_TYPE =
 const CONTRACT_SELECT_BASE =
   "*, legal_entity:legal_entities!legal_entity_id(*), counterparty:counterparties!counterparty_id(*), folder:folders!folder_id(id, name, parent_id)";
 
+const CONTRACT_SELECT_MINIMAL =
+  "*, legal_entity:legal_entities!legal_entity_id(*), counterparty:counterparties!counterparty_id(*)";
+
 type ContractRow = Record<string, unknown> & {
-  legal_entity: { name: string } | null;
-  counterparty: { name: string } | null;
-  contract_type?: { name: string } | null;
-  folder?: { id: string; name: string; parent_id: string | null } | null;
+  id: string;
+  status: ContractWithDetails["status"];
+  legal_entity: ContractWithDetails["legal_entity"];
+  counterparty: ContractWithDetails["counterparty"];
+  contract_type?: ContractWithDetails["contract_type"] | null;
+  folder?: Pick<Folder, "id" | "name" | "parent_id"> | null;
   folder_id?: string | null;
 };
+
+function groupRowsByContractId<T extends { contract_id: string }>(
+  rows: T[]
+): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    const list = map.get(row.contract_id) ?? [];
+    list.push(row);
+    map.set(row.contract_id, list);
+  }
+  return map;
+}
 
 async function fetchContractRow(
   supabase: ReturnType<typeof createAdminClient>,
@@ -70,9 +92,7 @@ async function fetchContractRow(
 
   const withoutRelations = await supabase
     .from("contracts")
-    .select(
-      "*, legal_entity:legal_entities!legal_entity_id(*), counterparty:counterparties!counterparty_id(*)"
-    )
+    .select(CONTRACT_SELECT_MINIMAL)
     .eq("id", contractId)
     .single();
 
@@ -85,58 +105,138 @@ async function fetchContractRow(
   };
 }
 
-async function fetchFolderPath(folderId: string | null | undefined) {
-  if (!folderId) return null;
-  try {
-    const folders = await fetchAllFolders();
-    return buildFolderPathLabel(folderId, folders);
-  } catch {
-    return null;
+async function fetchAllContractRows(
+  supabase: ReturnType<typeof createAdminClient>
+): Promise<ContractRow[]> {
+  const withType = await supabase
+    .from("contracts")
+    .select(CONTRACT_SELECT_WITH_TYPE)
+    .order("created_at", { ascending: false });
+
+  if (!withType.error && withType.data?.length) {
+    return withType.data as ContractRow[];
   }
+
+  const withFolderOnly = await supabase
+    .from("contracts")
+    .select(CONTRACT_SELECT_BASE)
+    .order("created_at", { ascending: false });
+
+  if (!withFolderOnly.error && withFolderOnly.data?.length) {
+    return withFolderOnly.data.map((row) => ({
+      ...(row as ContractRow),
+      contract_type: null,
+    }));
+  }
+
+  const withoutRelations = await supabase
+    .from("contracts")
+    .select(CONTRACT_SELECT_MINIMAL)
+    .order("created_at", { ascending: false });
+
+  if (withoutRelations.error || !withoutRelations.data?.length) {
+    return [];
+  }
+
+  return withoutRelations.data.map((row) => ({
+    ...(row as ContractRow),
+    contract_type: null,
+    folder: null,
+  }));
 }
 
-export async function fetchContractWithDetails(
-  contractId: string,
-  namingTemplate?: string
-): Promise<ContractWithDetails | null> {
+async function fetchRelationshipsByContractIds(
+  contractIds: string[]
+): Promise<Map<string, ContractRelationship[]>> {
+  const map = new Map<string, ContractRelationship[]>();
+  for (const contractId of contractIds) {
+    map.set(contractId, []);
+  }
+
+  if (!contractIds.length) return map;
+
   const supabase = createAdminClient();
+  const [relsA, relsB] = await Promise.all([
+    supabase
+      .from("contract_relationships")
+      .select("*")
+      .in("contract_a_id", contractIds),
+    supabase
+      .from("contract_relationships")
+      .select("*")
+      .in("contract_b_id", contractIds),
+  ]);
 
-  const contract = await fetchContractRow(supabase, contractId);
+  const seen = new Set<string>();
+  for (const row of [...(relsA.data ?? []), ...(relsB.data ?? [])]) {
+    const relationship = row as ContractRelationship;
+    if (seen.has(relationship.id)) continue;
+    seen.add(relationship.id);
 
-  if (!contract) return null;
+    map.get(relationship.contract_a_id)?.push(relationship);
+    if (relationship.contract_b_id !== relationship.contract_a_id) {
+      map.get(relationship.contract_b_id)?.push(relationship);
+    }
+  }
 
-  const { data: documents } = await supabase
-    .from("documents")
-    .select("*")
-    .eq("contract_id", contractId)
-    .order("created_at");
+  return map;
+}
 
-  const { data: metadata_values } = await supabase
-    .from("metadata_values")
-    .select("*, metadata_fields(*)")
-    .eq("contract_id", contractId);
+function resolveFolderDetails(
+  folderIds: string[],
+  allFolders: FolderRecord[]
+) {
+  const folder_paths = buildFolderPaths(folderIds, allFolders);
+  const byId = new Map(allFolders.map((folder) => [folder.id, folder]));
+  const folders = folderIds
+    .map((id) => byId.get(id))
+    .filter((folder): folder is FolderRecord => Boolean(folder))
+    .map((folder) => ({
+      id: folder.id,
+      name: folder.name,
+      parent_id: folder.parent_id,
+    }));
 
-  const { data: relationships } = await supabase
-    .from("contract_relationships")
-    .select("*")
-    .or(`contract_a_id.eq.${contractId},contract_b_id.eq.${contractId}`);
+  const primaryFolderId = folderIds[0] ?? null;
+  const folder_path =
+    folder_paths.length > 0
+      ? folder_paths.join("; ")
+      : primaryFolderId
+        ? buildFolderPathLabel(primaryFolderId, allFolders)
+        : null;
 
-  const pending_review_count = (metadata_values ?? []).filter(
-    (v) => !v.confirmed
-  ).length;
+  return { folderIds, folders, folder_paths, folder_path, primaryFolderId };
+}
 
-  const template = namingTemplate ?? (await getNamingTemplate());
-  const legalEntityName =
-    (contract.legal_entity as { name: string } | null)?.name ?? null;
-  const counterpartyName =
-    (contract.counterparty as { name: string } | null)?.name ?? null;
-  const contractTypeName =
-    (contract.contract_type as { name: string } | null)?.name ?? null;
-  const primaryRole = (documents?.[0]?.role as DocumentRole) ?? "original";
+function assembleContractWithDetails(
+  contract: ContractRow,
+  {
+    documents,
+    metadata_values,
+    relationships,
+    folderIds,
+    allFolders,
+    namingTemplate,
+  }: {
+    documents: Document[];
+    metadata_values: MetadataValue[];
+    relationships: ContractRelationship[];
+    folderIds: string[];
+    allFolders: FolderRecord[];
+    namingTemplate: string;
+  }
+): ContractWithDetails {
+  const pending_review_count = metadata_values.filter((value) => !value.confirmed)
+    .length;
+
+  const legalEntityName = contract.legal_entity?.name ?? null;
+  const counterpartyName = contract.counterparty?.name ?? null;
+  const contractTypeName = contract.contract_type?.name ?? null;
+  const primaryRole = (documents[0]?.role as DocumentRole) ?? "original";
 
   const display_name = contractDisplayName(
-    template,
-    (metadata_values ?? []) as MetadataValue[],
+    namingTemplate,
+    metadata_values,
     primaryRole,
     {
       legalEntity: legalEntityName,
@@ -145,69 +245,135 @@ export async function fetchContractWithDetails(
     }
   );
 
-  const folderIds = await fetchContractFolderIds(contractId);
-  let folder_paths: string[] = [];
-  let folders: Pick<Folder, "id" | "name" | "parent_id">[] = [];
-
-  try {
-    const allFolders = await fetchAllFolders();
-    folder_paths = buildFolderPaths(folderIds, allFolders);
-    const byId = new Map(allFolders.map((f) => [f.id, f]));
-    folders = folderIds
-      .map((id) => byId.get(id))
-      .filter((f): f is FolderRecord => Boolean(f))
-      .map((f) => ({ id: f.id, name: f.name, parent_id: f.parent_id }));
-  } catch {
-    folder_paths = [];
-    folders = [];
-  }
-
-  const primaryFolderId = folderIds[0] ?? null;
-  const folder_path =
-    folder_paths.length > 0
-      ? folder_paths.join("; ")
-      : await fetchFolderPath(primaryFolderId);
+  const folderDetails = resolveFolderDetails(folderIds, allFolders);
 
   return {
-    ...(contract as Omit<ContractWithDetails, "documents" | "metadata_values" | "relationships" | "effective_status" | "pending_review_count" | "display_name" | "folder_path" | "folder_paths" | "folder_ids" | "folders">),
-    legal_entity: (contract.legal_entity ?? null) as ContractWithDetails["legal_entity"],
-    counterparty: (contract.counterparty ?? null) as ContractWithDetails["counterparty"],
-    contract_type: (contract.contract_type ?? null) as ContractWithDetails["contract_type"],
-    folder: folders[0] ?? (contract.folder ?? null) as ContractWithDetails["folder"],
-    folder_id: primaryFolderId ?? (contract.folder_id as string | null) ?? null,
-    folder_ids: folderIds,
-    folders,
-    folder_path,
-    folder_paths,
-    documents: documents ?? [],
-    metadata_values: (metadata_values ?? []) as MetadataValue[],
-    relationships: relationships ?? [],
+    ...(contract as unknown as Omit<
+      ContractWithDetails,
+      | "documents"
+      | "metadata_values"
+      | "relationships"
+      | "effective_status"
+      | "pending_review_count"
+      | "display_name"
+      | "folder_path"
+      | "folder_paths"
+      | "folder_ids"
+      | "folders"
+      | "legal_entity"
+      | "counterparty"
+      | "contract_type"
+      | "folder"
+      | "folder_id"
+    >),
+    legal_entity: contract.legal_entity ?? null,
+    counterparty: contract.counterparty ?? null,
+    contract_type: contract.contract_type ?? null,
+    folder:
+      folderDetails.folders[0] ?? contract.folder ?? null,
+    folder_id:
+      folderDetails.primaryFolderId ?? (contract.folder_id as string | null) ?? null,
+    folder_ids: folderDetails.folderIds,
+    folders: folderDetails.folders,
+    folder_path: folderDetails.folder_path,
+    folder_paths: folderDetails.folder_paths,
+    documents,
+    metadata_values,
+    relationships,
     effective_status: computeEffectiveStatusFromMetadata(
-      contract.status as ContractWithDetails["status"],
-      (metadata_values ?? []) as MetadataValue[]
+      contract.status,
+      metadata_values
     ),
     pending_review_count,
     display_name,
   };
 }
 
+export async function fetchContractWithDetails(
+  contractId: string,
+  namingTemplate?: string
+): Promise<ContractWithDetails | null> {
+  const supabase = createAdminClient();
+  const contract = await fetchContractRow(supabase, contractId);
+  if (!contract) return null;
+
+  const [documentsResult, metadataResult, relationshipsResult, folderIds, template, allFolders] =
+    await Promise.all([
+      supabase
+        .from("documents")
+        .select("*")
+        .eq("contract_id", contractId)
+        .order("created_at"),
+      supabase
+        .from("metadata_values")
+        .select("*, metadata_fields(*)")
+        .eq("contract_id", contractId),
+      supabase
+        .from("contract_relationships")
+        .select("*")
+        .or(`contract_a_id.eq.${contractId},contract_b_id.eq.${contractId}`),
+      fetchContractFolderIds(contractId),
+      namingTemplate ? Promise.resolve(namingTemplate) : getNamingTemplate(),
+      fetchAllFolders().catch(() => [] as FolderRecord[]),
+    ]);
+
+  return assembleContractWithDetails(contract, {
+    documents: (documentsResult.data ?? []) as Document[],
+    metadata_values: (metadataResult.data ?? []) as MetadataValue[],
+    relationships: (relationshipsResult.data ?? []) as ContractRelationship[],
+    folderIds,
+    allFolders,
+    namingTemplate: template,
+  });
+}
+
 export async function fetchAllContractsWithDetails(): Promise<
   ContractWithDetails[]
 > {
   const supabase = createAdminClient();
+  const contractRows = await fetchAllContractRows(supabase);
+  if (!contractRows.length) return [];
 
-  const { data: contracts } = await supabase
-    .from("contracts")
-    .select("*")
-    .order("created_at", { ascending: false });
+  const contractIds = contractRows.map((contract) => contract.id);
 
-  if (!contracts?.length) return [];
+  const [
+    namingTemplate,
+    allFolders,
+    folderIdsByContract,
+    documentsResult,
+    metadataResult,
+    relationshipsByContract,
+  ] = await Promise.all([
+    getNamingTemplate(),
+    fetchAllFolders().catch(() => [] as FolderRecord[]),
+    fetchFolderIdsByContractIds(contractIds),
+    supabase
+      .from("documents")
+      .select("*")
+      .in("contract_id", contractIds)
+      .order("created_at"),
+    supabase
+      .from("metadata_values")
+      .select("*, metadata_fields(*)")
+      .in("contract_id", contractIds),
+    fetchRelationshipsByContractIds(contractIds),
+  ]);
 
-  const namingTemplate = await getNamingTemplate();
-  const results: ContractWithDetails[] = [];
-  for (const contract of contracts) {
-    const details = await fetchContractWithDetails(contract.id, namingTemplate);
-    if (details) results.push(details);
-  }
-  return results;
+  const documentsByContract = groupRowsByContractId(
+    (documentsResult.data ?? []) as Document[]
+  );
+  const metadataByContract = groupRowsByContractId(
+    (metadataResult.data ?? []) as MetadataValue[]
+  );
+
+  return contractRows.map((contract) =>
+    assembleContractWithDetails(contract, {
+      documents: documentsByContract.get(contract.id) ?? [],
+      metadata_values: metadataByContract.get(contract.id) ?? [],
+      relationships: relationshipsByContract.get(contract.id) ?? [],
+      folderIds: folderIdsByContract.get(contract.id) ?? [],
+      allFolders,
+      namingTemplate,
+    })
+  );
 }
