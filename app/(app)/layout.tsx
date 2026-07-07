@@ -1,7 +1,20 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { SupabaseNotConfigured } from "@/components/setup/SupabaseNotConfigured";
+import { requireAuthenticatedUser } from "@/lib/auth/session";
+import { hasSupabasePublicEnv } from "@/lib/supabase/env";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  if (!hasSupabasePublicEnv()) {
+    return <SupabaseNotConfigured />;
+  }
+
+  await requireAuthenticatedUser();
+
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />

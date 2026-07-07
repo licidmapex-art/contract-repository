@@ -58,6 +58,8 @@ openssl rand -hex 32
    - After adding/changing variables: **Deploys → Clear cache and deploy site**
    - Verify: open `https://your-site.netlify.app/api/setup/status` — all `has*` flags should be `true`
 
+   **Note:** Auth runs in server layouts (not edge middleware) to avoid Netlify edge bundling issues with Supabase.
+
 5. Deploy.
 
 ## 4. Scheduled jobs
