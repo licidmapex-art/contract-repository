@@ -1,3 +1,5 @@
+# Netlify configuration for Contract Repository (Next.js)
+
 [build]
   command = "npm run build"
 
@@ -7,4 +9,3 @@
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["pdf-parse", "googleapis"]
-  timeout = 26
