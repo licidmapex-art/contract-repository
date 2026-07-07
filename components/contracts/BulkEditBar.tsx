@@ -68,7 +68,9 @@ export function BulkEditBar({
         setFolders(list);
         if (list.length && !folderId) setFolderId(list[0].id);
       });
-  }, [fieldId, folderId]);
+    // Reference data is loaded once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const folderOptions = useMemo(() => buildFolderOptions(folders), [folders]);
   const selectedField = fields.find((f) => f.id === fieldId);

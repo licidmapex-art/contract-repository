@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchAllContractsWithDetails } from "@/lib/contracts/fetch";
 import {
   aggregateReviewScores,
-  computeExpiringByMonth,
+  fetchExpiringByMonthFromDb,
   ReviewAction,
 } from "@/lib/dashboard/charts";
 
@@ -14,12 +13,12 @@ export async function GET() {
 
   const supabase = createAdminClient();
 
-  const [eventsResult, contracts] = await Promise.all([
+  const [eventsResult, expiringByMonth] = await Promise.all([
     supabase
       .from("metadata_review_events")
       .select("user_id, user_email, action, points")
       .order("created_at", { ascending: false }),
-    fetchAllContractsWithDetails(),
+    fetchExpiringByMonthFromDb(),
   ]);
 
   const reviewScores = aggregateReviewScores(
@@ -30,8 +29,6 @@ export async function GET() {
       points: event.points,
     }))
   );
-
-  const expiringByMonth = computeExpiringByMonth(contracts);
 
   return NextResponse.json({ reviewScores, expiringByMonth });
 }

@@ -23,12 +23,12 @@ export default function DashboardPage() {
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const loadContracts = useCallback(async () => {
-    setLoading(true);
+  const loadContracts = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const res = await fetch("/api/contracts");
     const data = await res.json();
     setAllContracts(data.contracts ?? []);
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -59,12 +59,12 @@ export default function DashboardPage() {
       <DashboardCharts />
 
       <div className="space-y-4">
-        <OnionFilter onFilterChange={handleFilterChange} />
+        <OnionFilter contracts={allContracts} onFilterChange={handleFilterChange} />
         <AskBox />
         <BulkEditBar
           selectedIds={selectedIds}
           onClearSelection={() => setSelectedIds(new Set())}
-          onComplete={loadContracts}
+          onComplete={() => loadContracts(true)}
         />
         <ContractTable
           contracts={displayContracts}

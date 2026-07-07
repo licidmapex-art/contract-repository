@@ -28,15 +28,21 @@ export function RelationshipsPanel({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch("/api/contracts")
+    fetch("/api/contracts/summary")
       .then((r) => r.json())
       .then((data) => {
         const list = (data.contracts ?? [])
           .filter((c: { id: string }) => c.id !== contractId)
-          .map((c: { id: string; title: string | null }) => ({
-            id: c.id,
-            title: c.title,
-          }));
+          .map(
+            (c: {
+              id: string;
+              title: string | null;
+              display_name: string | null;
+            }) => ({
+              id: c.id,
+              title: c.display_name ?? c.title,
+            })
+          );
         setContracts(list);
       });
   }, [contractId]);

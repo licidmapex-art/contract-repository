@@ -63,7 +63,7 @@ export default function FoldersPage() {
         onFoldersUpdated={loadContracts}
       />
       <div className="min-w-0 flex-1 space-y-4 overflow-auto p-4">
-        <OnionFilter onFilterChange={handleFilterChange} />
+        <OnionFilter contracts={allContracts} onFilterChange={handleFilterChange} />
         <AskBox />
         <ContractTable
           contracts={displayContracts}

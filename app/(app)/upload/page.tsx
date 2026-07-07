@@ -25,14 +25,20 @@ export default function UploadPage() {
   const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
-    fetch("/api/contracts")
+    fetch("/api/contracts/summary")
       .then((r) => r.json())
       .then((data) => {
         setContracts(
-          (data.contracts ?? []).map((c: ContractOption) => ({
-            id: c.id,
-            title: c.title,
-          }))
+          (data.contracts ?? []).map(
+            (c: {
+              id: string;
+              title: string | null;
+              display_name: string | null;
+            }) => ({
+              id: c.id,
+              title: c.display_name ?? c.title,
+            })
+          )
         );
       });
   }, []);
@@ -62,10 +68,26 @@ export default function UploadPage() {
       return;
     }
 
-    setStatus("Uploaded! Extraction running in background...");
+    const documents = (data.documents ?? []) as Array<{ id: string }>;
+    if (documents.length) {
+      setStatus("Extracting metadata...");
+      for (const document of documents) {
+        const extractRes = await fetch(`/api/documents/${document.id}/re-extract`, {
+          method: "POST",
+        });
+        const extractData = await extractRes.json();
+        if (!extractRes.ok) {
+          setStatus(`Uploaded, but extraction failed: ${extractData.error ?? "Unknown error"}`);
+          setLoading(false);
+          return;
+        }
+      }
+    }
+
+    setStatus("Upload and extraction complete.");
     setTimeout(() => {
       router.push(`/contracts/${data.contract_id}`);
-    }, 1500);
+    }, 800);
   }
 
   return (
@@ -149,7 +171,7 @@ export default function UploadPage() {
               disabled={loading || !files?.length}
               className="w-full"
             >
-              {loading ? "Uploading..." : "Upload & extract"}
+              {loading ? "Working..." : "Upload & extract"}
             </Button>
           </form>
         </CardContent>

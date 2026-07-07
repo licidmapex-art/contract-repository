@@ -536,12 +536,9 @@ export function ContractTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {sortedContracts.map((contract, rowIndex) => (
-              <motion.tr
+            {sortedContracts.map((contract) => (
+              <tr
                 key={contract.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: rowIndex * 0.02, duration: 0.2 }}
                 className="transition-colors hover:bg-accent/30"
               >
                 {selectable && (
@@ -565,7 +562,7 @@ export function ContractTable({
                     {renderCell(contract, key)}
                   </td>
                 ))}
-              </motion.tr>
+              </tr>
             ))}
           </tbody>
         </table>
@@ -644,8 +641,10 @@ export function MetricCards({ contracts }: { contracts: ContractWithDetails[] })
 }
 
 export function OnionFilter({
+  contracts,
   onFilterChange,
 }: {
+  contracts: ContractWithDetails[];
   onFilterChange: (params: URLSearchParams) => void;
 }) {
   const [fields, setFields] = useState<
@@ -656,7 +655,7 @@ export function OnionFilter({
   const [fieldValue, setFieldValue] = useState("");
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const [allContracts, setAllContracts] = useState<ContractWithDetails[]>([]);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   useEffect(() => {
     fetch("/api/metadata-fields")
@@ -665,11 +664,9 @@ export function OnionFilter({
   }, []);
 
   useEffect(() => {
-    fetch("/api/contracts")
-      .then((r) => r.json())
-      .then((data) => setAllContracts(data.contracts ?? []))
-      .catch(() => setAllContracts([]));
-  }, []);
+    const timer = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const categories = [...new Set(fields.map((f) => f.category))];
   const categoryFields = fields.filter((f) => f.category === category);
@@ -677,7 +674,7 @@ export function OnionFilter({
     if (!fieldKey) return [];
 
     const values = new Set<string>();
-    for (const contract of allContracts) {
+    for (const contract of contracts) {
       if (fieldKey === "counterparty" && contract.counterparty?.name) {
         values.add(contract.counterparty.name);
       }
@@ -696,15 +693,15 @@ export function OnionFilter({
     return [...values]
       .sort((a, b) => a.localeCompare(b))
       .filter((value) => !query || value.toLowerCase().includes(query));
-  }, [allContracts, fieldKey, fieldValue]);
+  }, [contracts, fieldKey, fieldValue]);
 
   const applyFilters = useCallback(() => {
     const params = new URLSearchParams();
     if (statusFilter.length) params.set("status", statusFilter.join(","));
     if (fieldKey && fieldValue) params.set(`field:${fieldKey}`, fieldValue);
-    if (search) params.set("search", search);
+    if (debouncedSearch) params.set("search", debouncedSearch);
     onFilterChange(params);
-  }, [statusFilter, fieldKey, fieldValue, search, onFilterChange]);
+  }, [statusFilter, fieldKey, fieldValue, debouncedSearch, onFilterChange]);
 
   useEffect(() => {
     applyFilters();

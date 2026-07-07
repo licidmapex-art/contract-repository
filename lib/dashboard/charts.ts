@@ -1,3 +1,5 @@
+import { createAdminClient } from "@/lib/supabase/admin";
+
 export type ReviewAction = "confirm" | "correct";
 
 export const REVIEW_POINTS: Record<ReviewAction, number> = {
@@ -135,6 +137,64 @@ export function computeExpiringByMonth(
     const expiry = parseExpiryDate(expiryRaw);
     if (!expiry) continue;
     if (expiry < start || expiry > end) continue;
+
+    const monthKey = `${expiry.getFullYear()}-${String(expiry.getMonth() + 1).padStart(2, "0")}`;
+    const bucket = buckets.get(monthKey);
+    if (bucket) bucket.count++;
+  }
+
+  return [...buckets.values()];
+}
+
+export async function fetchExpiringByMonthFromDb(
+  referenceDate: Date = new Date(),
+  monthsAhead = 3
+): Promise<ExpiringMonthRow[]> {
+  const supabase = createAdminClient();
+
+  const start = new Date(referenceDate);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + monthsAhead);
+  end.setHours(23, 59, 59, 999);
+
+  const buckets = new Map<string, ExpiringMonthRow>();
+
+  for (let i = 0; i < monthsAhead; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+    const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    buckets.set(monthKey, {
+      monthKey,
+      label: monthLabel(d.getFullYear(), d.getMonth()),
+      count: 0,
+    });
+  }
+
+  const { data: expiryField } = await supabase
+    .from("metadata_fields")
+    .select("id")
+    .eq("key", "expiry_date")
+    .maybeSingle();
+
+  if (!expiryField) {
+    return [...buckets.values()];
+  }
+
+  const startIso = start.toISOString().slice(0, 10);
+  const endIso = end.toISOString().slice(0, 10);
+
+  const { data: rows } = await supabase
+    .from("metadata_values")
+    .select("value")
+    .eq("field_id", expiryField.id)
+    .not("value", "is", null)
+    .gte("value", startIso)
+    .lte("value", endIso);
+
+  for (const row of rows ?? []) {
+    const expiry = parseExpiryDate(row.value);
+    if (!expiry || expiry < start || expiry > end) continue;
 
     const monthKey = `${expiry.getFullYear()}-${String(expiry.getMonth() + 1).padStart(2, "0")}`;
     const bucket = buckets.get(monthKey);

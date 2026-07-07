@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Sparkles } from "lucide-react";
 import { StatusChip } from "@/components/ui/StatusChip";
-import { PdfViewer } from "@/components/pdf/PdfViewer";
 import { RelationshipsPanel } from "@/components/contracts/RelationshipsPanel";
 import { ContractPartiesPanel } from "@/components/contracts/ContractPartiesPanel";
 import { ContractTypePanel } from "@/components/contracts/ContractTypePanel";
@@ -16,6 +16,21 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { ContractWithDetails } from "@/lib/types";
 import { inputClass } from "@/lib/ui-classes";
+
+const PdfViewer = dynamic(
+  () =>
+    import("@/components/pdf/PdfViewer").then((module) => ({
+      default: module.PdfViewer,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-64 items-center justify-center text-sm text-muted">
+        Loading PDF viewer...
+      </div>
+    ),
+  }
+);
 
 export default function ContractDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -43,9 +58,21 @@ export default function ContractDetailPage() {
 
   useEffect(() => {
     loadContract();
+  }, [loadContract]);
+
+  useEffect(() => {
+    if (!contract) return;
+
+    const needsPolling = contract.documents.some(
+      (doc) =>
+        doc.processing_status === "pending" ||
+        doc.processing_status === "processing"
+    );
+    if (!needsPolling) return;
+
     const interval = setInterval(loadContract, 5000);
     return () => clearInterval(interval);
-  }, [loadContract]);
+  }, [contract, loadContract]);
 
   async function reExtractDocument(documentId: string) {
     setReExtracting(documentId);
@@ -204,13 +231,20 @@ export default function ContractDetailPage() {
                         View
                       </button>
                       {(doc.processing_status === "failed" ||
-                        doc.processing_status === "complete") && (
+                        doc.processing_status === "complete" ||
+                        doc.processing_status === "processing" ||
+                        doc.processing_status === "pending") && (
                         <button
                           onClick={() => reExtractDocument(doc.id)}
                           disabled={reExtracting === doc.id}
                           className="text-sm text-muted hover:underline disabled:opacity-50"
                         >
-                          {reExtracting === doc.id ? "Extracting..." : "Re-extract"}
+                          {reExtracting === doc.id
+                            ? "Extracting..."
+                            : doc.processing_status === "processing" ||
+                                doc.processing_status === "pending"
+                              ? "Retry extract"
+                              : "Re-extract"}
                         </button>
                       )}
                     </div>

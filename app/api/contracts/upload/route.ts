@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { runExtractionPipeline } from "@/lib/extraction/pipeline";
 import { DocumentRole, DOCUMENT_ROLES } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
@@ -84,8 +83,6 @@ export async function POST(request: NextRequest) {
     }
 
     uploadedDocuments.push(document);
-
-    runExtractionPipeline(document.id, resolvedContractId).catch(console.error);
   }
 
   return NextResponse.json({

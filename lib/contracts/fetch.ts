@@ -51,6 +51,15 @@ type ContractRow = Record<string, unknown> & {
   folder_id?: string | null;
 };
 
+const DOCUMENT_LIST_SELECT =
+  "id, contract_id, role, storage_path, original_filename, generated_filename, processing_status, uploaded_via, created_at";
+
+function toListDocuments(
+  rows: Omit<Document, "extracted_text">[]
+): Document[] {
+  return rows.map((row) => ({ ...row, extracted_text: null }));
+}
+
 function groupRowsByContractId<T extends { contract_id: string }>(
   rows: T[]
 ): Map<string, T[]> {
@@ -349,7 +358,7 @@ export async function fetchAllContractsWithDetails(): Promise<
     fetchFolderIdsByContractIds(contractIds),
     supabase
       .from("documents")
-      .select("*")
+      .select(DOCUMENT_LIST_SELECT)
       .in("contract_id", contractIds)
       .order("created_at"),
     supabase
@@ -360,7 +369,9 @@ export async function fetchAllContractsWithDetails(): Promise<
   ]);
 
   const documentsByContract = groupRowsByContractId(
-    (documentsResult.data ?? []) as Document[]
+    toListDocuments(
+      (documentsResult.data ?? []) as Omit<Document, "extracted_text">[]
+    )
   );
   const metadataByContract = groupRowsByContractId(
     (metadataResult.data ?? []) as MetadataValue[]
@@ -376,4 +387,28 @@ export async function fetchAllContractsWithDetails(): Promise<
       namingTemplate,
     })
   );
+}
+
+export interface ContractSummary {
+  id: string;
+  title: string | null;
+  display_name: string | null;
+}
+
+export async function fetchContractSummaries(): Promise<ContractSummary[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("contracts")
+    .select("id, title, contract_number")
+    .order("created_at", { ascending: false });
+
+  if (error || !data) return [];
+
+  return data.map((row) => ({
+    id: row.id,
+    title: row.title,
+    display_name:
+      row.title ??
+      (row.contract_number != null ? `#${row.contract_number}` : null),
+  }));
 }

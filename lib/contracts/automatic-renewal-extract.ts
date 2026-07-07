@@ -11,11 +11,11 @@ export function normalizeAutomaticRenewalExtraction(
   return extracted.map((item) => {
     if (item.key !== AUTOMATIC_RENEWAL_FIELD_KEY) return item;
 
-    if (!item.value?.trim()) {
+    if (item.value == null || !String(item.value).trim()) {
       return { ...item, value: null };
     }
 
-    const parsed = parseAutomaticRenewal(item.value);
+    const parsed = parseAutomaticRenewal(String(item.value));
     return {
       ...item,
       value: serializeAutomaticRenewal(parsed),

@@ -7,3 +7,4 @@
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["pdf-parse", "googleapis"]
+  timeout = 26
