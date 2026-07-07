@@ -1,5 +1,9 @@
 import { syncFolderMetadataFromAssignment } from "@/lib/folders/link-contract-folder";
 import { getContractIdsInFolderSubtree } from "@/lib/folders/contract-folders";
+import {
+  isMissingFoldersTableError,
+  isMissingSortOrderColumnError,
+} from "@/lib/folders/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildDescendantsMap,
@@ -15,28 +19,105 @@ export async function fetchAllFolders(): Promise<FolderRecord[]> {
     .order("sort_order")
     .order("name");
 
-  if (error) {
-    if (error.message.includes("folders")) return [];
-    if (error.message.includes("sort_order")) {
-      const fallback = await supabase
-        .from("folders")
-        .select("id, name, parent_id")
-        .order("name");
-      if (fallback.error) throw new Error(fallback.error.message);
-      return (fallback.data ?? []).map((row) => ({
-        ...row,
-        sort_order: 0,
-      }));
-    }
-    throw new Error(error.message);
+  if (!error) {
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      parent_id: row.parent_id,
+      sort_order: row.sort_order ?? 0,
+    }));
   }
 
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    name: row.name,
-    parent_id: row.parent_id,
-    sort_order: row.sort_order ?? 0,
-  }));
+  if (isMissingSortOrderColumnError(error.message)) {
+    const fallback = await supabase
+      .from("folders")
+      .select("id, name, parent_id")
+      .order("name");
+    if (fallback.error) {
+      if (isMissingFoldersTableError(fallback.error.message)) return [];
+      throw new Error(fallback.error.message);
+    }
+    return (fallback.data ?? []).map((row) => ({
+      ...row,
+      sort_order: 0,
+    }));
+  }
+
+  if (isMissingFoldersTableError(error.message)) {
+    return [];
+  }
+
+  throw new Error(error.message);
+}
+
+export async function getFoldersSetupStatus(): Promise<{
+  tableReady: boolean;
+  folderCount: number;
+  hasSortOrder: boolean;
+  hasContractFolders: boolean;
+  contractFolderLinkCount: number;
+  message: string | null;
+}> {
+  const supabase = createAdminClient();
+
+  const { data, error } = await supabase
+    .from("folders")
+    .select("id, name, parent_id, sort_order");
+
+  if (error) {
+    if (isMissingFoldersTableError(error.message)) {
+      return {
+        tableReady: false,
+        folderCount: 0,
+        hasSortOrder: false,
+        hasContractFolders: false,
+        contractFolderLinkCount: 0,
+        message:
+          "folders table is missing. Run migrations 009–012 in Supabase SQL Editor.",
+      };
+    }
+
+    if (isMissingSortOrderColumnError(error.message)) {
+      const fallback = await supabase.from("folders").select("id");
+      const { count: linkCount, error: linkError } = await supabase
+        .from("contract_folders")
+        .select("id", { count: "exact", head: true });
+
+      return {
+        tableReady: true,
+        folderCount: fallback.data?.length ?? 0,
+        hasSortOrder: false,
+        hasContractFolders: !linkError,
+        contractFolderLinkCount: linkCount ?? 0,
+        message:
+          (fallback.data?.length ?? 0) > 0
+            ? "Run migration 012_folder_sort_order.sql to restore folder ordering."
+            : null,
+      };
+    }
+
+    return {
+      tableReady: false,
+      folderCount: 0,
+      hasSortOrder: false,
+      hasContractFolders: false,
+      contractFolderLinkCount: 0,
+      message: error.message,
+    };
+  }
+
+  const { count: linkCount, error: linkError } = await supabase
+    .from("contract_folders")
+    .select("id", { count: "exact", head: true });
+
+  return {
+    tableReady: true,
+    folderCount: data?.length ?? 0,
+    hasSortOrder: true,
+    hasContractFolders: !linkError,
+    contractFolderLinkCount: linkCount ?? 0,
+    message: null,
+  };
 }
 
 async function nextSiblingSortOrder(parentId: string | null): Promise<number> {

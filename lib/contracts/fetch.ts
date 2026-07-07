@@ -314,7 +314,7 @@ export async function fetchContractWithDetails(
         .or(`contract_a_id.eq.${contractId},contract_b_id.eq.${contractId}`),
       fetchContractFolderIds(contractId),
       namingTemplate ? Promise.resolve(namingTemplate) : getNamingTemplate(),
-      fetchAllFolders().catch(() => [] as FolderRecord[]),
+      fetchAllFolders(),
     ]);
 
   return assembleContractWithDetails(contract, {
@@ -345,7 +345,7 @@ export async function fetchAllContractsWithDetails(): Promise<
     relationshipsByContract,
   ] = await Promise.all([
     getNamingTemplate(),
-    fetchAllFolders().catch(() => [] as FolderRecord[]),
+    fetchAllFolders(),
     fetchFolderIdsByContractIds(contractIds),
     supabase
       .from("documents")

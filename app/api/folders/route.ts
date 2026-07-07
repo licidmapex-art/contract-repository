@@ -11,7 +11,8 @@ export async function GET() {
     return NextResponse.json({ folders });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load folders";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = message.includes("missing") || message.includes("migration") ? 503 : 500;
+    return NextResponse.json({ error: message, folders: [] }, { status });
   }
 }
 
