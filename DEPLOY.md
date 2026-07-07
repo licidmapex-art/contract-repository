@@ -23,10 +23,12 @@ Set these in Netlify (**Site settings → Environment variables**) and locally i
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon key |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL (also set `SUPABASE_URL` to the same value on Netlify) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon key (also set `SUPABASE_ANON_KEY` to the same value on Netlify) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key |
-| `GEMINI_API_KEY` | Yes | Google Gemini API key |
+| `SUPABASE_URL` | Recommended (Netlify) | Same as `NEXT_PUBLIC_SUPABASE_URL` — used at runtime by middleware |
+| `SUPABASE_ANON_KEY` | Recommended (Netlify) | Same as `NEXT_PUBLIC_SUPABASE_ANON_KEY` — used at runtime by middleware |
+| `GEMINI_API_KEY` | Optional* | Fallback if API keys not yet in Settings |
 | `CRON_SECRET` | Yes (prod) | Random string for scheduled cron auth |
 | `INGEST_SECRET` | Optional | Secret for manual email ingest API |
 | `GMAIL_CLIENT_ID` | Optional | Gmail OAuth client ID |
@@ -48,6 +50,14 @@ openssl rand -hex 32
    - Build command: `npm run build`
    - Publish directory: handled by `@netlify/plugin-nextjs`
 4. Add all environment variables from section 2.
+   **Important:** `.env.local` is not deployed with the repo. You must add the Supabase variables in Netlify before the site will load.
+
+   **Netlify checklist:**
+   - Set each variable's scope to **All** (or at least **Build** + **Functions**)
+   - Add both `NEXT_PUBLIC_*` and `SUPABASE_*` pairs (same values) for middleware
+   - After adding/changing variables: **Deploys → Clear cache and deploy site**
+   - Verify: open `https://your-site.netlify.app/api/setup/status` — all `has*` flags should be `true`
+
 5. Deploy.
 
 ## 4. Scheduled jobs

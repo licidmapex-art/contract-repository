@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { hasSupabasePublicEnv, SUPABASE_ENV_MESSAGE } from "@/lib/supabase/env";
 
 export async function POST(request: Request) {
   const { email, password } = await request.json();
@@ -8,11 +9,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Email and password required" }, { status: 400 });
   }
 
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    return NextResponse.json(
-      { error: "Supabase is not configured. Check .env.local and restart the dev server." },
-      { status: 500 }
-    );
+  if (!hasSupabasePublicEnv()) {
+    return NextResponse.json({ error: SUPABASE_ENV_MESSAGE }, { status: 503 });
   }
 
   try {

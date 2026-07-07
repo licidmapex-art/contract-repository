@@ -1,29 +1,50 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import {
+  getSupabasePublicEnv,
+  hasSupabasePublicEnv,
+  SUPABASE_ENV_MESSAGE,
+} from "@/lib/supabase/env";
 
 export async function middleware(request: NextRequest) {
+  const isSetupStatus = request.nextUrl.pathname === "/api/setup/status";
+  if (isSetupStatus) {
+    return NextResponse.next({ request });
+  }
+
+  if (!hasSupabasePublicEnv()) {
+    if (request.nextUrl.pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: SUPABASE_ENV_MESSAGE }, { status: 503 });
+    }
+
+    return new NextResponse(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Configuration required</title></head><body style="font-family:system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem;line-height:1.5"><h1>Supabase not configured</h1><p>${SUPABASE_ENV_MESSAGE}</p><p><a href="https://supabase.com/dashboard/project/_/settings/api">Open Supabase API settings</a></p></body></html>`,
+      {
+        status: 503,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      }
+    );
+  }
+
+  const { url, anonKey } = getSupabasePublicEnv();
   let supabaseResponse = NextResponse.next({ request });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
+  const supabase = createServerClient(url, anonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
       },
-    }
-  );
+      setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
+        cookiesToSet.forEach(({ name, value }) =>
+          request.cookies.set(name, value)
+        );
+        supabaseResponse = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          supabaseResponse.cookies.set(name, value, options)
+        );
+      },
+    },
+  });
 
   const {
     data: { user },
